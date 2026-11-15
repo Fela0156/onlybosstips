@@ -1,0 +1,276 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07111f">
+<title>ONLYBOSSTIPS Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:#07111f;color:white;font-family:Arial,sans-serif}
+main{max-width:950px;margin:auto}
+h1{color:#35d07f}
+h2{color:#35d07f}
+.card,.item{background:#101e30;padding:18px;border-radius:12px;margin:16px 0}
+input,select,button{width:100%;padding:13px;margin:7px 0;border-radius:7px;font-size:15px}
+input,select{background:#07111f;color:white;border:1px solid #35465d}
+button{background:#25bd70;color:#06130c;border:0;font-weight:bold}
+button.secondary{background:#35465d;color:white}
+button.danger{background:#d94b4b;color:white}
+.small{width:auto;padding:9px 12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hidden{display:none}
+.muted{color:#aab8ca;font-size:13px}
+#message{color:#ffd477;overflow-wrap:anywhere}
+.item{overflow-wrap:anywhere}
+@media(max-width:600px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>ONLYBOSSTIPS</h1>
+<p class="muted">PRIVATE ADMIN DASHBOARD</p>
+</header>
+
+<section id="login" class="card">
+<h2>Administrator Login</h2>
+<input id="email" type="email" placeholder="Admin email">
+<input id="password" type="password" placeholder="Password">
+<button id="loginBtn">LOGIN</button>
+<p id="message"></p>
+</section>
+
+<section id="dashboard" class="hidden">
+<div class="row">
+<div>
+<h2>Admin Dashboard</h2>
+<p id="adminEmail" class="muted"></p>
+</div>
+<div><button id="logoutBtn" class="secondary">LOG OUT</button></div>
+</div>
+
+<div class="card">
+<h2>Post New Prediction</h2>
+<input id="league" placeholder="League / Competition">
+<div class="row">
+<input id="home" placeholder="Home team">
+<input id="away" placeholder="Away team">
+</div>
+<input id="pick" placeholder="Prediction">
+<div class="row">
+<input id="odds" type="number" step="any" placeholder="Odds">
+<input id="kickoff" type="datetime-local">
+</div>
+<select id="visibility">
+<option value="free">FREE ODDS</option>
+<option value="vip">VIP ODDS</option>
+</select>
+<button id="publishBtn">PUBLISH PREDICTION</button>
+</div>
+
+<div class="card">
+<h2>Manage Predictions</h2>
+<div id="predictions">Loading...</div>
+</div>
+
+<div class="card">
+<h2>Manage Members / VIP Approval</h2>
+<p class="muted">New members automatically receive FREE access. Only the administrator can approve VIP.</p>
+<div id="members">Loading...</div>
+</div>
+</section>
+</main>
+
+<script>
+const URL="https://mumntekskdfexzupjvmc.supabase.co";
+const KEY="sb_publishable_JEaf2iqIFEXMyTwBOWrmxQ_-_R3G11d";
+const db=window.supabase.createClient(URL,KEY);
+
+const $=id=>document.getElementById(id);
+
+function message(t){$("message").textContent=t;}
+
+function el(tag,text,className){
+ const node=document.createElement(tag);
+ node.textContent=text;
+ if(className)node.className=className;
+ return node;
+}
+
+async function isAdmin(user){
+ const {data,error}=await db.from("admins")
+ .select("user_id").eq("user_id",user.id).maybeSingle();
+ return !error && !!data;
+}
+
+async function login(){
+ const email=$("email").value.trim();
+ const password=$("password").value;
+ if(!email||!password){message("Enter your email and password.");return;}
+
+ message("Signing in...");
+ const {data,error}=await db.auth.signInWithPassword({email,password});
+ if(error){message(error.message);return;}
+
+ if(!await isAdmin(data.user)){
+  await db.auth.signOut();
+  message("Access denied. This account is not an administrator.");
+  return;
+ }
+ await openDashboard(data.user);
+}
+
+async function openDashboard(user){
+ $("login").classList.add("hidden");
+ $("dashboard").classList.remove("hidden");
+ $("adminEmail").textContent=user.email||"Administrator";
+ await loadPredictions();
+ await loadMembers();
+}
+
+async function logout(){
+ await db.auth.signOut();
+ location.reload();
+}
+
+async function publish(){
+ const league=$("league").value.trim();
+ const home=$("home").value.trim();
+ const away=$("away").value.trim();
+ const pick=$("pick").value.trim();
+ const odds=$("odds").value;
+ const kickoff=$("kickoff").value;
+ const visibility=$("visibility").value;
+
+ if(!league||!home||!away||!pick||!odds||!kickoff){
+  alert("Complete all prediction fields.");return;
+ }
+ const {error}=await db.from("predictions").insert([{
+  league,home_team:home,away_team:away,
+  prediction:pick,odds:Number(odds),
+  kickoff:new Date(kickoff).toISOString(),
+  visibility,status:"pending"
+ }]);
+ if(error){alert(error.message);return;}
+ alert("Prediction published!");
+ ["league","home","away","pick","odds","kickoff"].forEach(id=>$(id).value="");
+ await loadPredictions();
+}
+
+async function loadPredictions(){
+ const box=$("predictions");
+ box.textContent="Loading predictions...";
+ const {data,error}=await db.from("predictions")
+ .select("*").order("created_at",{ascending:false});
+ if(error){box.textContent=error.message;return;}
+ box.replaceChildren();
+ if(!data.length){box.textContent="No predictions yet.";return;}
+
+ data.forEach(p=>{
+  const item=el("div","");
+  item.className="item";
+  item.append(
+   el("strong",p.home_team+" vs "+p.away_team),
+   el("p",p.league+" | "+p.visibility.toUpperCase()),
+   el("p","Pick: "+p.prediction+" | Odds: "+p.odds),
+   el("p","Status: "+p.status+" | Result: "+(p.result||"Pending"))
+  );
+
+  const edit=el("button","EDIT","small");
+  edit.onclick=()=>editPrediction(p);
+  const result=el("button","UPDATE RESULT","small secondary");
+  result.onclick=()=>setResult(p.id);
+  const del=el("button","DELETE","small danger");
+  del.onclick=()=>deletePrediction(p.id);
+  item.append(edit,result,del);
+  box.append(item);
+ });
+}
+
+async function editPrediction(p){
+ const pick=prompt("Updated prediction:",p.prediction);
+ if(pick===null)return;
+ const odds=prompt("Updated odds:",p.odds);
+ if(odds===null)return;
+ const tier=prompt("Enter FREE or VIP:",p.visibility);
+ if(tier===null)return;
+ if(!["free","vip"].includes(tier.toLowerCase().trim())){
+  alert("Enter FREE or VIP.");return;
+ }
+ const {error}=await db.from("predictions").update({
+  prediction:pick.trim(),odds:Number(odds),
+  visibility:tier.toLowerCase().trim()
+ }).eq("id",p.id);
+ if(error){alert(error.message);return;}
+ await loadPredictions();
+}
+
+async function setResult(id){
+ const result=prompt("Enter result, e.g. WON, LOST or VOID:");
+ if(!result||!result.trim())return;
+ const {error}=await db.from("predictions").update({
+  status:"finished",result:result.trim()
+ }).eq("id",id);
+ if(error){alert(error.message);return;}
+ await loadPredictions();
+}
+
+async function deletePrediction(id){
+ if(!confirm("Delete this prediction?"))return;
+ const {error}=await db.from("predictions").delete().eq("id",id);
+ if(error){alert(error.message);return;}
+ await loadPredictions();
+}
+
+async function loadMembers(){
+ const box=$("members");
+ box.textContent="Loading members...";
+ const {data,error}=await db.from("member_profiles")
+ .select("user_id,membership_tier,created_at")
+ .order("created_at",{ascending:false});
+ if(error){box.textContent=error.message;return;}
+ box.replaceChildren();
+ if(!data.length){box.textContent="No members yet.";return;}
+
+ data.forEach(m=>{
+  const item=el("div","");
+  item.className="item";
+  item.append(
+   el("p","Member ID: "+m.user_id),
+   el("p","Membership: "+m.membership_tier.toUpperCase())
+  );
+  const btn=el("button",
+   m.membership_tier==="vip"?"REVOKE VIP":"APPROVE VIP","small");
+  btn.onclick=()=>changeTier(m.user_id,
+   m.membership_tier==="vip"?"free":"vip");
+  item.append(btn);
+  box.append(item);
+ });
+}
+
+async function changeTier(userId,tier){
+ if(!confirm(tier==="vip"?"Approve VIP access?":"Revoke VIP access?"))return;
+ const {error}=await db.from("member_profiles")
+ .update({membership_tier:tier}).eq("user_id",userId);
+ if(error){alert(error.message);return;}
+ await loadMembers();
+}
+
+$("loginBtn").onclick=login;
+$("logoutBtn").onclick=logout;
+$("publishBtn").onclick=publish;
+
+(async()=>{
+ const {data}=await db.auth.getSession();
+ const user=data.session?.user;
+ if(user){
+  if(await isAdmin(user))await openDashboard(user);
+  else await db.auth.signOut();
+ }
+})();
+</script>
+</body>
+</html>
