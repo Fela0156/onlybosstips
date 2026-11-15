@@ -106,22 +106,7 @@ async function isAdmin(user){
  return !error && !!data;
 }
 
-async function login(){
- const email=$("email").value.trim();
- const password=$("password").value;
- if(!email||!password){message("Enter your email and password.");return;}
 
- message("Signing in...");
- const {data,error}=await db.auth.signInWithPassword({email,password});
- if(error){message(error.message);return;}
-
- if(!await isAdmin(data.user)){
-  await db.auth.signOut();
-  message("Access denied. This account is not an administrator.");
-  return;
- }
- await openDashboard(data.user);
-}
 
 async function openDashboard(user){
  $("login").classList.add("hidden");
@@ -135,7 +120,40 @@ async function logout(){
  await db.auth.signOut();
  location.reload();
 }
+async function adminLogin(){
+ try {
+  const email=$("email").value.trim();
+  const password=$("password").value;
 
+  if(!email||!password){
+   message("Enter your email and password.");
+   return;
+  }
+
+  message("Connecting to Supabase...");
+
+  const {data,error}=await db.auth.signInWithPassword({
+   email,password
+  });
+
+  if(error){
+   message("Login failed: "+error.message);
+   return;
+  }
+
+  if(!await isAdmin(data.user)){
+   await db.auth.signOut();
+   message("Access denied. Not an administrator.");
+   return;
+  }
+
+  message("Login successful!");
+  await openDashboard(data.user);
+
+ } catch(error) {
+  message("Error: "+error.message);
+ }
+}
 async function publish(){
  const league=$("league").value.trim();
  const home=$("home").value.trim();
@@ -259,7 +277,7 @@ async function changeTier(userId,tier){
  await loadMembers();
 }
 
-$("loginBtn").onclick=login;
+$("loginBtn").onclick=adminLogin;
 $("logoutBtn").onclick=logout;
 $("publishBtn").onclick=publish;
 
